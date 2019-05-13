@@ -1,6 +1,8 @@
 # meta_graph.py
 
 import os
+import pandas as pd
+import networkx as nx
 
 from src.data import meta_ingest
 
@@ -25,6 +27,32 @@ class MemGraphData(object):
             self.info = meta_ingest.gen_meta_info(filename)
         else:
             raise TypeError("The provided filename is not a string.")
+
+    def subset(self):
+        pass
+
+    def collapse_nodelist(self):
+        pass
+
+    def collapse_edgelist(self):
+        result = pd.DataFrame()
+        
+        for name, group in self.el.groupby(["champ_a", "champ_b"], as_index=False):
+            new = pd.DataFrame(columns=["champ_a", "champ_b", "gameid", "games"])
+            new.loc[0] = [group.champ_a.values[0], group.champ_b.values[0],
+                        group.gameid.values.tolist(), len(group.index)]
+            result = result.append(new)
+        
+        result = result.reset_index()
+        return result
+
+    def make_graph(self):
+        result = nx.from_pandas_dataframe(
+            self.collapse_edgelist(), "champ_a", "champ_b",
+            ["gameid", "games"]
+        )
+
+        return result
 
 class PostgreSQLGraphData(object):
 
