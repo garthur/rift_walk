@@ -1,3 +1,4 @@
 /data/raw/*
 *.pyc
 .env
+/rift_walk.egg-info/*
