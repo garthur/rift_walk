@@ -1,10 +1,12 @@
 # meta_graph.py
 
 import os
-import pandas as pd
+
 import networkx as nx
+import pandas as pd
 
 from src.data import meta_ingest
+
 
 class MemGraphData(object):
     
@@ -47,7 +49,7 @@ class MemGraphData(object):
         return result
 
     def make_graph(self):
-        result = nx.from_pandas_dataframe(
+        result = nx.from_pandas_edgelist(
             self.collapse_edgelist(), "champ_a", "champ_b",
             ["gameid", "games"]
         )
