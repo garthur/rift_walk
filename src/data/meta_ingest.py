@@ -1,5 +1,10 @@
 # meta_ingest.py
 
+import os
+import pathlib
+import datetime
+import luigi
+
 import pandas as pd
 
 def gen_meta_nodelist(filepath):
@@ -62,3 +67,18 @@ def gen_meta_info(filepath):
                                        "week", "patchno"])
 
     return meta_info.drop_duplicates()
+
+class MetaUpload(luigi.Task):
+    pass
+
+class MetaDownloadInterim(luigi.Task):
+    
+    def output(self):
+        return luigi.LocalTarget(
+            os.path.join(pathlib.Path(__file__).parents[1], "data", "interim")
+        )
+
+    def run(self):
+        data = None
+        with self.output().open("w") as out_file:
+            out_file.write(data)
