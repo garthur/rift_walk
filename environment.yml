@@ -24,6 +24,7 @@ dependencies:
   - jupyter_core=4.3.0=py34_0
   - libpng=1.6.30=vc10_1
   - libpq=9.5.4=vc10_0
+  - luigi=2.3.0=py34_0
   - markupsafe=1.0=py34_0
   - mistune=0.7.4=py34_0
   - mkl=2017.0.4=h6d528fc_0
@@ -64,6 +65,7 @@ dependencies:
   - win_unicode_console=0.5=py34_0
   - zlib=1.2.11=vc10_0
   - pip:
-    - dotenv==0.0.5
     - pip==19.1.1
+    - python-dotenv==0.10.2
+    - typing==3.6.6
 

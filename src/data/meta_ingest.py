@@ -2,10 +2,13 @@
 
 import os
 import pathlib
+import dotenv
 import datetime
 import luigi
-
+import psycopg2
 import pandas as pd
+
+dotenv.load_dotenv(dotenv.find_dotenv())
 
 def gen_meta_nodelist(filepath):
     nl = pd.read_excel(filepath, sheetname=0, 
@@ -68,8 +71,100 @@ def gen_meta_info(filepath):
 
     return meta_info.drop_duplicates()
 
+class MetaDBSetup(luigi.Task):
+
+    def run(self):
+        
+        conn = psycopg2.connect(
+            host = os.environ.get("AWS_DATABASE_URL"),
+            dbname = os.environ.get("AWS_DATABASE_NAME"),
+            user = os.environ.get("AWS_DATABASE_USER"),
+            password = os.environ.get("AWS_DATABASE_PW")
+        )
+
+        cur = conn.cursor()
+
+        # create tables
+        
+        # metadata
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS meta_info (
+                gameid integer PRIMARY KEY,
+                league char,
+                split char,
+                game_date date,
+                week char,
+                patchno char
+            );
+            """
+        )
+        # edgelist
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS meta_edgelist (
+                gameid integer REFERENCES meta_info(gameid) ON DELETE CASCADE,
+                champ_a char,
+                champ_b char,
+                side char,
+                link_type char(2)
+            );
+            """
+        )
+        # nodelist
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS meta_nodelist (
+                gameid integer REFERENCES meta_info(gameid) ON DELETE CASCADE,
+                side char,
+                position char,
+                champ char,
+                result integer,
+                k integer CHECK (k >= 0),
+                d integer CHECK (d >= 0),
+                a integer CHECK (a >= 0)
+            );
+            """
+        )
+
+        # finish up
+        conn.commit()
+        conn.close()
+
 class MetaUpload(luigi.Task):
-    pass
+    ingest_dir = luigi.Parameter()
+
+    def requires(self):
+        return [MetaDBSetup()]
+
+    def run(self):
+
+        conn = psycopg2.connect(
+            host = os.environ.get("AWS_DATABASE_URL"),
+            dbname = os.environ.get("AWS_DATABASE_NAME"),
+            user = os.environ.get("AWS_DATABASE_USER"),
+            password = os.environ.get("AWS_DATABASE_PW")
+        )
+
+        cur = conn.cursor()
+
+        # upload to db
+        
+        # edgelist
+        cur.execute(
+
+        )
+        # nodelist
+        cur.execute(
+
+        )
+        # metadata
+        cur.execute(
+
+        )
+
+        # close connection
+        conn.close()
 
 class MetaDownloadInterim(luigi.Task):
     
