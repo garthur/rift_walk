@@ -2,68 +2,103 @@ name: rift_walk_env
 channels:
   - defaults
 dependencies:
-  - backports_abc=0.5=py34_0
+  - attrs=19.1.0=py36_1
+  - backcall=0.1.0=py36_0
+  - backports=1.0=py36_1
+  - backports.os=0.1.1=py36_0
+  - backports_abc=0.5=py36_0
   - blas=1.0=mkl
-  - bleach=1.5.0=py34_0
-  - colorama=0.3.9=py34_0
+  - bleach=3.1.0=py36_0
+  - ca-certificates=2019.1.23=0
+  - certifi=2019.3.9=py36_0
+  - colorama=0.4.1=py36_0
   - decorator=4.4.0=py_0
-  - entrypoints=0.2.3=py34_0
-  - html5lib=0.999=py34_0
-  - icu=57.1=vc10_0
+  - defusedxml=0.6.0=py_0
+  - entrypoints=0.3=py36_0
+  - html5lib=1.0.1=py36_0
+  - icc_rt=2019.0.0=h0cc432a_1
+  - icu=58.2=ha66f8fd_1
+  - importlib_metadata=0.9=py36_0
   - intel-openmp=2019.3=203
-  - ipykernel=4.6.1=py34_0
-  - ipython=5.3.0=py34_0
-  - ipython_genutils=0.2.0=py34_0
-  - ipywidgets=5.2.2=py34_1
-  - jinja2=2.9.6=py34_0
-  - jpeg=9b=vc10_0
-  - jsonschema=2.6.0=py34_0
-  - jupyter=1.0.0=py34_3
-  - jupyter_client=5.1.0=py34_0
-  - jupyter_console=5.0.0=py34_0
-  - jupyter_core=4.3.0=py34_0
-  - libpng=1.6.30=vc10_1
-  - libpq=9.5.4=vc10_0
-  - luigi=2.3.0=py34_0
-  - markupsafe=1.0=py34_0
-  - mistune=0.7.4=py34_0
+  - ipykernel=5.1.0=py36h39e3cac_0
+  - ipython=7.5.0=py36h39e3cac_0
+  - ipython_genutils=0.2.0=py36h3c5d0ee_0
+  - ipywidgets=7.4.2=py36_0
+  - jedi=0.13.3=py36_0
+  - jinja2=2.10.1=py36_0
+  - jpeg=9b=hb83a4c4_2
+  - jsonschema=3.0.1=py36_0
+  - jupyter=1.0.0=py36_7
+  - jupyter_client=5.2.4=py36_0
+  - jupyter_console=6.0.0=py36_0
+  - jupyter_core=4.4.0=py36_0
+  - krb5=1.16.1=hc04afaa_7
+  - libpng=1.6.37=h2a8f88b_0
+  - libpq=11.2=h3235a2c_0
+  - libsodium=1.0.16=h9d3ae62_0
+  - luigi=2.8.3=py36_0
+  - m2w64-gcc-libgfortran=5.3.0=6
+  - m2w64-gcc-libs=5.3.0=7
+  - m2w64-gcc-libs-core=5.3.0=7
+  - m2w64-gmp=6.1.0=2
+  - m2w64-libwinpthread-git=5.0.0.4634.697f757=2
+  - markupsafe=1.1.1=py36he774522_0
+  - mistune=0.8.4=py36he774522_0
   - mkl=2017.0.4=h6d528fc_0
-  - nbconvert=5.2.1=py34_0
-  - nbformat=4.3.0=py34_0
-  - networkx=1.11=py34_0
-  - notebook=5.0.0=py34_0
-  - numpy=1.11.3=py34_0
-  - openssl=1.0.2l=vc10_0
-  - pandas=0.19.2=np111py34_1
-  - pandocfilters=1.4.1=py34_0
-  - path.py=10.0=py34_0
-  - pep8=1.7.0=py34_0
-  - pickleshare=0.7.4=py34_0
-  - prompt_toolkit=1.0.14=py34_0
-  - psycopg2=2.6.2=py34_0
+  - msys2-conda-epoch=20160418=1
+  - nbconvert=5.5.0=py_0
+  - nbformat=4.4.0=py36h3a5bc1b_0
+  - networkx=2.3=py_0
+  - notebook=5.7.8=py36_0
+  - numpy=1.13.3=py36hb69e940_3
+  - openssl=1.1.1b=he774522_1
+  - pandas=0.24.2=py36ha925a31_0
+  - pandoc=2.2.3.2=0
+  - pandocfilters=1.4.2=py36_1
+  - parso=0.4.0=py_0
+  - path.py=12.0.1=py_0
+  - pep8=1.7.1=py36_0
+  - pickleshare=0.7.5=py36_0
+  - prometheus_client=0.6.0=py36_0
+  - prompt_toolkit=2.0.9=py36_0
+  - psycopg2=2.7.6.1=py36h7a1dbc1_0
+  - py4j=0.10.7=py36_0
   - pygments=2.4.0=py_0
-  - pyqt=5.6.0=py34_2
-  - python=3.4.5=0
-  - python-dateutil=2.6.1=py34_0
+  - pyqt=5.9.2=py36h6538335_2
+  - pyrsistent=0.14.11=py36he774522_0
+  - pyspark=2.4.1=py_0
+  - python=3.6.8=h9f7ef89_7
+  - python-dateutil=2.8.0=py36_0
   - pytz=2019.1=py_0
-  - pyzmq=16.0.2=py34_0
-  - qt=5.6.2=vc10_5
+  - pywinpty=0.5.5=py36_1000
+  - pyzmq=18.0.0=py36ha925a31_0
+  - qt=5.9.7=vc14h73c81de_0
   - qtconsole=4.4.4=py_0
-  - scipy=0.19.1=np111py34_0
-  - setuptools=27.2.0=py34_1
-  - simplegeneric=0.8.1=py34_1
-  - sip=4.18=py34_0
-  - six=1.10.0=py34_0
-  - testpath=0.3.1=py34_0
-  - tornado=4.5.1=py34_0
-  - traitlets=4.3.2=py34_0
-  - vc=10=0
+  - scipy=0.19.1=np113py36_0
+  - send2trash=1.5.0=py36_0
+  - setuptools=41.0.1=py36_0
+  - simplegeneric=0.8.1=py36_2
+  - sip=4.19.8=py36h6538335_0
+  - six=1.12.0=py36_0
+  - sqlite=3.28.0=he774522_0
+  - terminado=0.8.2=py36_0
+  - testpath=0.4.2=py36_0
+  - tk=8.6.8=hfa6e2cd_0
+  - tornado=5.1.1=py36hfa6e2cd_0
+  - traitlets=4.3.2=py36h096827d_0
+  - vc=14.1=h0510ff6_4
   - vs2010_runtime=10.00.40219.1=2
-  - wcwidth=0.1.7=py34_0
-  - wheel=0.29.0=py34_0
-  - widgetsnbextension=1.2.6=py34_0
-  - win_unicode_console=0.5=py34_0
-  - zlib=1.2.11=vc10_0
+  - vs2015_runtime=14.15.26706=h3a45250_4
+  - wcwidth=0.1.7=py36h3d5aa90_0
+  - webencodings=0.5.1=py36_1
+  - wheel=0.33.4=py36_0
+  - widgetsnbextension=3.4.2=py36_0
+  - win_unicode_console=0.5=py36hcdbd4b5_0
+  - wincertstore=0.2=py36h7fe50ca_0
+  - winpty=0.4.3=4
+  - zeromq=4.3.1=h33f27b4_3
+  - zipp=0.3.3=py36_1
+  - zlib=1.2.11=h62dcd97_3
   - pip:
     - pip==19.1.1
     - python-dotenv==0.10.2
