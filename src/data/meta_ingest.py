@@ -173,16 +173,3 @@ class MetaUpload(luigi.Task):
 
         # close connection
         conn.close()
-
-class MetaDownloadInterim(luigi.Task):
-    use_hadoop = luigi.BoolParameter(default=False)
-    
-    def output(self):
-        return luigi.LocalTarget(
-            os.path.join(pathlib.Path(__file__).parents[1], "data", "interim")
-        )
-
-    def run(self):
-        data = None
-        with self.output().open("w") as out_file:
-            out_file.write(data)
