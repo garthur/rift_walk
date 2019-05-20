@@ -132,7 +132,7 @@ class MetaDBSetup(luigi.Task):
         conn.close()
 
 class MetaUpload(luigi.Task):
-    ingest_dir = luigi.Parameter()
+    ingest_path = luigi.Parameter(default="/data/raw")
 
     def requires(self):
         return [MetaDBSetup()]
@@ -147,6 +147,14 @@ class MetaUpload(luigi.Task):
         )
 
         cur = conn.cursor()
+
+        # read file information
+        files = []
+        for r, d, f in os.walk(ingest_path):
+            for f_ in f:
+                if ".xlsx" in f_:
+                    files.append(os.path.join(r, f_))
+
 
         # upload to db
         
@@ -167,6 +175,7 @@ class MetaUpload(luigi.Task):
         conn.close()
 
 class MetaDownloadInterim(luigi.Task):
+    use_hadoop = luigi.BoolParameter(default=False)
     
     def output(self):
         return luigi.LocalTarget(
