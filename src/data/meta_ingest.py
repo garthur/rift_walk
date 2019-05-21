@@ -71,7 +71,57 @@ def gen_meta_info(filepath):
 
     return meta_info.drop_duplicates()
 
+class MetaDBClean(luigi.Task):
+    __complete = False
+
+    def run(self):
+
+        conn = psycopg2.connect(
+            host = os.environ.get("AWS_DATABASE_URL"),
+            dbname = os.environ.get("AWS_DATABASE_NAME"),
+            user = os.environ.get("AWS_DATABASE_USER"),
+            password = os.environ.get("AWS_DATABASE_PW")
+        )
+
+        cur = conn.cursor()
+
+        # drop tables
+
+        # metadata
+        cur.execute(
+            """
+            DROP TABLE IF EXISTS meta_info CASCADE;
+            """
+        )
+        # edgelist
+        cur.execute(
+            """
+            DROP TABLE IF EXISTS meta_edgelist CASCADE;
+            """
+        )
+        # nodelist
+        cur.execute(
+            """
+            DROP TABLE IF EXISTS meta_nodelist CASCADE;
+            """
+        )
+
+        # finish up
+        conn.commit()
+        conn.close()
+
+        self.__complete = True
+    
+    def complete(self):
+        return self.__complete
+
 class MetaDBSetup(luigi.Task):
+    overwrite = luigi.BoolParameter(default=False)
+    __complete = False
+
+    def requires(self):
+        if self.overwrite:
+            return MetaDBClean()
 
     def run(self):
         
@@ -90,12 +140,12 @@ class MetaDBSetup(luigi.Task):
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS meta_info (
-                gameid integer PRIMARY KEY,
-                league char,
-                split char,
-                game_date date,
-                week char,
-                patchno char
+                gameid TEXT PRIMARY KEY,
+                league TEXT,
+                split TEXT,
+                game_date DATE,
+                week TEXT,
+                patchno TEXT
             );
             """
         )
@@ -103,11 +153,11 @@ class MetaDBSetup(luigi.Task):
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS meta_edgelist (
-                gameid integer REFERENCES meta_info(gameid) ON DELETE CASCADE,
-                champ_a char,
-                champ_b char,
-                side char,
-                link_type char(2)
+                gameid TEXT REFERENCES meta_info(gameid) ON DELETE CASCADE,
+                champ_a TEXT,
+                champ_b TEXT,
+                side TEXT,
+                link_type TEXT
             );
             """
         )
@@ -115,10 +165,10 @@ class MetaDBSetup(luigi.Task):
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS meta_nodelist (
-                gameid integer REFERENCES meta_info(gameid) ON DELETE CASCADE,
-                side char,
-                position char,
-                champ char,
+                gameid TEXT REFERENCES meta_info(gameid) ON DELETE CASCADE,
+                side TEXT,
+                position TEXT,
+                champ TEXT,
                 result integer,
                 k integer CHECK (k >= 0),
                 d integer CHECK (d >= 0),
@@ -131,11 +181,17 @@ class MetaDBSetup(luigi.Task):
         conn.commit()
         conn.close()
 
+        self.__complete = True
+
+    def complete(self):
+        return self.__complete
+
 class MetaUpload(luigi.Task):
-    ingest_path = luigi.Parameter(default="/data/raw")
+    overwrite = luigi.BoolParameter(default=False)
+    ingest_dir = luigi.Parameter(default="/data/raw")
 
     def requires(self):
-        return [MetaDBSetup()]
+        return MetaDBSetup(self.overwrite)
 
     def run(self):
 
@@ -148,28 +204,52 @@ class MetaUpload(luigi.Task):
 
         cur = conn.cursor()
 
+        print(self.ingest_dir)
+        print(os.path.exists(self.ingest_dir))
         # read file information
         files = []
-        for r, d, f in os.walk(ingest_path):
+        for r, d, f in os.walk(self.ingest_dir):
             for f_ in f:
                 if ".xlsx" in f_:
                     files.append(os.path.join(r, f_))
 
+        # insert sql
+        insert_el = """
+                    INSERT INTO meta_edgelist (gameid, champ_a, champ_b, side, link_type) 
+                    VALUES (%s, %s, %s, %s, %s);
+                    """
+        insert_nl = """
+                    INSERT INTO meta_nodelist (gameid, side, position, champ, result, k, d, a)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s);
+                    """
+        insert_info = """
+                      INSERT INTO meta_info (gameid, league, split, game_date, week, patchno)
+                      VALUES (%s, %s, %s, %s, %s, %s);
+                      """
 
         # upload to db
-        
-        # edgelist
-        cur.execute(
-
-        )
-        # nodelist
-        cur.execute(
-
-        )
-        # metadata
-        cur.execute(
-
-        )
+        for f in files:
+            el = gen_meta_edgelist(f)
+            nl = gen_meta_nodelist(f)
+            info = gen_meta_info(f)
+            # edgelist
+            #FIXME: (tuple index out of range)
+            cur.executemany(
+                query = insert_el,
+                vars_list = [tuple(row)[1:] for row in el.itertuples()]
+            )
+            # nodelist
+            cur.executemany(
+                query = insert_nl,
+                vars_list = [tuple(row)[1:] for row in nl.itertuples()]
+            )
+            # metadata
+            cur.executemany(
+                query = insert_info,
+                vars_list = [tuple(row)[1:] for row in info.itertuples()]
+            )
+            print(f, "done!")
 
         # close connection
+        conn.commit()
         conn.close()
