@@ -1,48 +1,107 @@
 # meta_ingest.py
 
 import os
-import re
 import pathlib
 import urllib.parse
-import dotenv
-import datetime
 import luigi
 import psycopg2
 import pandas as pd
 
+# load environment variables
+import dotenv
 dotenv.load_dotenv(dotenv.find_dotenv())
 
-def gen_meta_nodelist(filepath):
-    nl = pd.read_excel(filepath, sheet_name=0, 
-                        usecols=["url", "side", "position", "champion", 
-                                 "result", "k", "d", "a"])
+# spark setup
+from pyspark import SparkContext, SparkConf
+from pyspark.sql import SparkSession
+CONF = SparkConf().setAppName("meta_ingest").setMaster("local")
+SC = SparkContext(conf=CONF)
+SQL_CONTEXT = SparkSession(SC)
+
+# constants
+MAJOR_LEAGUES = ["NALCS", "LCS", "EUCLS", "LEC", "LPL", "LMS", "LCK", "WC", "MSI"]
+
+def __make_gameid(r):
+    if r.isnull()[1]:
+        gameid = r[0]
+    else:
+        parsed = urllib.parse.parse_qs(
+            urllib.parse.urlparse(r[1], allow_fragments=False).query
+        )
+
+        if "gameHash" in parsed:
+            gameid = str(parsed["gameHash"][0])
+        else:
+            gameid = r[0]
+    
+    r_ = [gameid, gameid]
+    r_.extend(r[2:])
+    
+    return r_
+
+def __validate_gameid(gameid, url):
+    parsed = urllib.parse.parse_qs(
+                urllib.parse.urlparse(url, allow_fragments=False).query
+             )
+    if "gameHash" in parsed:
+        return str(parsed["gameHash"][0])
+    else:
+        return gameid
+
+def __update_leagues(l):
+    l_dict = {"NALCS":"LCS", "EULCS":"LEC", "LPL":"LPL", 
+              "LMS":"LMS", "LCK":"LCK", "WC":"WC", "MSI":"MSI"}
+    
+    return l_dict[l]
+
+def gen_meta_info(f):
+    meta_info = pd.read_excel(f, sheet_name=0,
+                                usecols=["gameid", "url", "league", "split", "date", 
+                                        "week", "patchno"],
+                                dtype={"gameid":str, "url":str, "league":str, "split":str,
+                                        "week":str, "patchno":str})
+
+    meta_info = meta_info.apply(__make_gameid, axis=1, result_type="broadcast")
+    # keep only major league games
+    meta_info = meta_info[meta_info["league"].isin(MAJOR_LEAGUES)]
+    # update league names
+    meta_info.league = meta_info.league.apply(__update_leagues)
+    # drop unecessary columns
+    meta_info = meta_info.drop(["url"], axis=1)
+    
+    # drop duplicates
+    return meta_info.drop_duplicates()
+
+def gen_meta_nodelist(f, meta_info):
+    nl = pd.read_excel(f, sheet_name=0, 
+                        usecols=["gameid", "url", "side", "position", "champion", 
+                                 "result", "k", "d", "a"],
+                        dtype={"gameid":str, "url":str, "side":str, "position":str, 
+                                "champion":str, "result":int, "k":int, "d":int, "a":int})
     # get rid of team observations
     nl = nl[nl["position"] != "Team"]
-    # no valid gameid
-    nl = nl[nl.url.notnull()]
-    nl["gameid"] = nl.url.apply(
-        lambda x: str(urllib.parse.parse_qs(
-            urllib.parse.urlparse(x, allow_fragments=False).query
-        )["gameHash"][0])
-    )
+    # make and select valid gameid
+    nl = nl.apply(__make_gameid, axis=1, result_type="broadcast")
+    nl = nl[nl["gameid"].isin(meta_info.gameid.values)]
+    # drop unecessary columns
     nl = nl.drop(["url"], axis=1)
     return nl
 
-def gen_meta_edgelist(filepath):
+def gen_meta_edgelist(f, meta_info):
     import itertools as itr
     # read in the data
-    df = pd.read_excel(filepath, sheet_name=0,
-                       usecols=["url", "side", "position", "champion", 
-                                "ban1", "ban2", "ban3", "ban4", "ban5"])
+    df = pd.read_excel(f, sheet_name=0,
+                       usecols=["gameid", "url", "side", "position", "champion", 
+                                "ban1", "ban2", "ban3", "ban4", "ban5"],
+                       dtype={"gameid":str, "url":str, "side":str, "position":str, "champion":str,
+                              "ban1":str, "ban2":str, "ban3":str, "ban4":str, "ban5":str})
     # get rid of team observations
     df = df[df["position"] != "Team"]
-    # no valid gameid
-    df = df[df.url.notnull()]
-    df["gameid"] = df.url.apply(
-        lambda x: str(urllib.parse.parse_qs(
-            urllib.parse.urlparse(x, allow_fragments=False).query
-        )["gameHash"][0])
-    )
+    # make and select valid gameid
+    df = df.apply(__make_gameid, axis=1, result_type="broadcast")
+    df = df[df["gameid"].isin(meta_info.gameid.values)]
+    # drop unecessary columns
+    df = df.drop(["url"], axis=1)
     
     # initialize empty data frames
     pw = pd.DataFrame()
@@ -81,20 +140,36 @@ def gen_meta_edgelist(filepath):
 
     return pw.append(ba)
 
-def gen_meta_info(filepath):
-    meta_info = pd.read_excel(filepath, sheet_name=0,
-                              usecols=["url", "league", "split", "date", 
-                                       "week", "patchno"])
+def read_oracle_data(f):
+    
+    # read in the data
+    df = SQL_CONTEXT.read.csv(f, header=True)
+    
+    # drop unnecessary columns
+    df = df.select("gameid", "url", "league", "split", "date", "week", "patchno",
+                   "side", "position", "champion", "result", "k", "d", "a",
+                   "ban1", "ban2", "ban3", "ban4", "ban5").rdd
+    # filter rows
+    df = df.filter(lambda x: (x[2] in MAJOR_LEAGUES) and (x[8] != "Team"))
+    # update league and gameid
+    df = df.map(lambda x: (*x[0:2], __update_leagues(x[2]), *x[3:]))\
+           .map(lambda x: (__validate_gameid(x[0], x[1]), *x[1:]))
 
-    # no valid gameid
-    meta_info = meta_info[meta_info.url.notnull()]
-    meta_info["gameid"] = meta_info.url.apply(
-        lambda x: str(urllib.parse.parse_qs(
-            urllib.parse.urlparse(x, allow_fragments=False).query
-        )["gameHash"][0])
-    )
-    meta_info = meta_info.drop(["url"], axis=1)
-    return meta_info.drop_duplicates()
+    # metadata frame
+    info = df.map(lambda x: (x[0], *x[2:7]))\
+             .toDF(["gameid", "league", "split", "game_date", "week", "patchno"])\
+             .dropDuplicates()
+
+    # nodelist frame
+    node = df.map(lambda x: (x[0], *x[7:14]))\
+             .toDF("gameid", "side", "position", "champion", "result", "k", "d", "a")
+
+    # edgelist frame
+    ban = df.map(lambda x: (x[0], (x[9], x[14]), (x[9], x[15]), (x[9], x[16]),
+                            (x[9], x[17]), (x[9], x[18]), "ban" ))
+    
+    return info, node, None
+    
 
 class MetaDBClean(luigi.Task):
     __complete = False
@@ -168,7 +243,7 @@ class MetaDBSetup(luigi.Task):
                 gameid TEXT PRIMARY KEY,
                 league TEXT,
                 split TEXT,
-                game_date DATE,
+                game_date TEXT,
                 week TEXT,
                 patchno TEXT
             );
@@ -220,16 +295,6 @@ class MetaUpload(luigi.Task):
 
     def run(self):
 
-        conn = psycopg2.connect(
-            host = os.environ.get("AWS_DATABASE_URL"),
-            dbname = os.environ.get("AWS_DATABASE_NAME"),
-            user = os.environ.get("AWS_DATABASE_USER"),
-            password = os.environ.get("AWS_DATABASE_PW"),
-            connect_timeout = 18000
-        )
-
-        cur = conn.cursor()
-
         # read file information
         files = []
         for r, d, f in os.walk(self.ingest_dir):
@@ -237,11 +302,9 @@ class MetaUpload(luigi.Task):
                 if ".xlsx" in f_:
                     files.append(os.path.join(r, f_))
 
-        # insert sql
-        
-        
+        # insert sql        
         insert_info = """
-                      INSERT INTO meta_info (league, split, game_date, week, patchno, gameid)
+                      INSERT INTO meta_info (gameid, league, split, game_date, week, patchno)
                       VALUES (%s, %s, %s, %s, %s, %s);
                       """
         insert_el = """
@@ -249,12 +312,24 @@ class MetaUpload(luigi.Task):
                     VALUES (%s, %s, %s, %s);
                     """
         insert_nl = """
-                    INSERT INTO meta_nodelist (side, position, champ, result, k, d, a, gameid)
+                    INSERT INTO meta_nodelist (gameid, side, position, champ, result, k, d, a)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s);
                     """
 
         # upload to db
         for f in files:
+            
+            # connect to db
+            conn = psycopg2.connect(
+                host = os.environ.get("AWS_DATABASE_URL"),
+                dbname = os.environ.get("AWS_DATABASE_NAME"),
+                user = os.environ.get("AWS_DATABASE_USER"),
+                password = os.environ.get("AWS_DATABASE_PW"),
+                connect_timeout = 18000
+            )
+            cur = conn.cursor()
+
+            print(f, "UPLOADING...")
 
             # metadata
             info = gen_meta_info(f)
@@ -262,21 +337,22 @@ class MetaUpload(luigi.Task):
                 query = insert_info,
                 vars_list = [tuple(row)[1:] for row in info.itertuples()]
             )
-            del info
             # edgelist
-            el = gen_meta_edgelist(f)
+            el = gen_meta_edgelist(f, info)
             cur.executemany(
                 query = insert_el,
                 vars_list = [tuple(row)[1:] for row in el.itertuples()]
             )
             del el
             # nodelist
-            nl = gen_meta_nodelist(f)
+            nl = gen_meta_nodelist(f, info)
             cur.executemany(
                 query = insert_nl,
                 vars_list = [tuple(row)[1:] for row in nl.itertuples()]
             )
-            del nl
+            del nl, info
+
+            print(f, "DONE!!!")
 
         # close connection
         conn.commit()
