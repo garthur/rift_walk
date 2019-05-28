@@ -18,14 +18,10 @@ from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.types import ArrayType, StringType
 
-CONF = SparkConf().setAppName("meta_ingest").setMaster("local")
-SC = SparkContext(conf=CONF)
-SQL_CONTEXT = SparkSession(SC)
-
-def read_oracle_data(f):
+def read_oracle_data(f, sqlContext):
 
     # read in the data
-    df = SQL_CONTEXT.read.csv(f, header=True)
+    df = sqlContext.read.csv(f, header=True)
 
     # drop unnecessary columns
     df = df.select("gameid", "url", "league", "split", "date", "week", "patchno",
