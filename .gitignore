@@ -1,5 +1,5 @@
 .vscode/*
-/data/raw/*
+*.zip
 *.pyc
 .env
 /rift_walk.egg-info/*
