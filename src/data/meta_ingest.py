@@ -22,25 +22,8 @@ CONF = SparkConf().setAppName("meta_ingest").setMaster("local")
 SC = SparkContext(conf=CONF)
 SQL_CONTEXT = SparkSession(SC)
 
-# constants
-MAJOR_LEAGUES = ["NALCS", "LCS", "EUCLS", "LEC", "LPL", "LMS", "LCK", "WC", "MSI"]
-
-def __make_gameid(gameid, url):
-    parsed = urllib.parse.parse_qs(
-                urllib.parse.urlparse(url, allow_fragments=False).query
-             )
-    if "gameHash" in parsed:
-        return str(parsed["gameHash"][0])
-    else:
-        return gameid
-
-def __update_leagues(l):
-    l_dict = {"NALCS":"LCS", "EULCS":"LEC", "LPL":"LPL", 
-              "LMS":"LMS", "LCK":"LCK", "WC":"WC", "MSI":"MSI"}
-    
-    return l_dict[l]
-
 def read_oracle_data(f):
+
     # read in the data
     df = SQL_CONTEXT.read.csv(f, header=True)
 
@@ -49,8 +32,25 @@ def read_oracle_data(f):
                     "side", "position", "champion", "result", "k", "d", "a",
                     "ban1", "ban2", "ban3", "ban4", "ban5").rdd
     # filter rows
+    MAJOR_LEAGUES = ["NALCS", "LCS", "EUCLS", "LEC", "LPL", "LMS", "LCK", "WC", "MSI"]
     df = df.filter(lambda x: (x[2] in MAJOR_LEAGUES) and (x[8] != "Team"))
+    
     # update league and gameid
+    def __make_gameid(gameid, url):
+        parsed = urllib.parse.parse_qs(
+                    urllib.parse.urlparse(url, allow_fragments=False).query
+                )
+        if "gameHash" in parsed:
+            return str(parsed["gameHash"][0])
+        else:
+            return gameid
+
+    def __update_leagues(l):
+        l_dict = {"NALCS":"LCS", "EULCS":"LEC", "LPL":"LPL", 
+                "LMS":"LMS", "LCK":"LCK", "WC":"WC", "MSI":"MSI"}
+        
+        return l_dict[l]
+
     df = df.map(lambda x: (*x[0:2], __update_leagues(x[2]), *x[3:]))\
            .map(lambda x: (__make_gameid(x[0], x[1]), *x[1:]))
 
