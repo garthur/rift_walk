@@ -1,288 +1,200 @@
 # meta_ingest.py
 
 import os
-import re
 import pathlib
 import urllib.parse
-import dotenv
-import datetime
-import luigi
+import itertools as itr
 import psycopg2
 import pandas as pd
 
+# load environment variables
+import dotenv
 dotenv.load_dotenv(dotenv.find_dotenv())
 
-def gen_meta_nodelist(filepath):
-    nl = pd.read_excel(filepath, sheet_name=0, 
-                        usecols=["url", "side", "position", "champion", 
-                                 "result", "k", "d", "a"])
-    # get rid of team observations
-    nl = nl[nl["position"] != "Team"]
-    # no valid gameid
-    nl = nl[nl.url.notnull()]
-    nl["gameid"] = nl.url.apply(
-        lambda x: str(urllib.parse.parse_qs(
-            urllib.parse.urlparse(x, allow_fragments=False).query
-        )["gameHash"][0])
-    )
-    nl = nl.drop(["url"], axis=1)
-    return nl
+# spark setup
+import findspark
+findspark.init()
+from pyspark import SparkContext, SparkConf
+from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
+from pyspark.sql.types import ArrayType, StringType
 
-def gen_meta_edgelist(filepath):
-    import itertools as itr
+# initialize spark contexts
+try:
+    sc and sqlContext
+except NameError as e:
+    sc = SparkContext()
+    sqlContext = SparkSession(sc)
+
+def read_oracle_data(f):
+
     # read in the data
-    df = pd.read_excel(filepath, sheet_name=0,
-                       usecols=["url", "side", "position", "champion", 
-                                "ban1", "ban2", "ban3", "ban4", "ban5"])
-    # get rid of team observations
-    df = df[df["position"] != "Team"]
-    # no valid gameid
-    df = df[df.url.notnull()]
-    df["gameid"] = df.url.apply(
-        lambda x: str(urllib.parse.parse_qs(
-            urllib.parse.urlparse(x, allow_fragments=False).query
-        )["gameHash"][0])
+    df = sqlContext.read.csv(f, header=True)
+
+    # drop unnecessary columns
+    df = df.select("gameid", "url", "league", "split", "date", "week", "patchno",
+                    "side", "position", "champion", "result", "k", "d", "a",
+                    "ban1", "ban2", "ban3", "ban4", "ban5").rdd
+    # filter rows
+    MAJOR_LEAGUES = ["NALCS", "LCS", "EUCLS", "LEC", "LPL", "LMS", "LCK", "WC", "MSI"]
+    df = df.filter(lambda x: (x[2] in MAJOR_LEAGUES) and (x[8] != "Team"))
+    
+    # update league and gameid
+    def __make_gameid(gameid, url):
+        parsed = urllib.parse.parse_qs(
+                    urllib.parse.urlparse(url, allow_fragments=False).query
+                )
+        if "gameHash" in parsed:
+            return str(parsed["gameHash"][0])
+        else:
+            return gameid
+
+    def __update_leagues(l):
+        l_dict = {"NALCS":"LCS", "EULCS":"LEC", "LPL":"LPL", 
+                "LMS":"LMS", "LCK":"LCK", "WC":"WC", "MSI":"MSI"}
+        
+        return l_dict[l]
+
+    df = df.map(lambda x: (*x[0:2], __update_leagues(x[2]), *x[3:]))\
+           .map(lambda x: (__make_gameid(x[0], x[1]), *x[1:]))
+
+    # metadata frame
+    info = df.map(lambda x: (x[0], *x[2:7]))\
+             .toDF(["gameid", "league", "split", "game_date", "week", "patchno"])\
+             .dropDuplicates()
+
+    # nodelist frame
+    node = df.map(lambda x: (x[0], *x[7:14]))\
+             .toDF(["gameid", "side", "position", "champion", "result", "k", "d", "a"])
+
+    # edgelist frame
+
+    ## get bans
+    bans = df.map(lambda x: (x[0], [[x[9], x[14]], [x[9], x[15]], [x[9], x[16]],
+                            [x[9], x[17]], [x[9], x[18]]], "ban" ))\
+             .toDF(["gameid", "combo", "link_type"])\
+             .select("gameid", F.explode("combo").alias("combo"), "link_type")
+    
+    bans = bans.select("gameid",
+                       bans.combo.getItem(0).alias("champ_a"),
+                       bans.combo.getItem(1).alias("champ_b"),
+                       "link_type")
+    
+    ## get picks and picked against
+    def __make_champ_combos(champs, sides):
+        cs = list(zip(champs, sides))
+        cs = list(itr.combinations(cs, 2))
+        return [(p[0][0], p[1][0], "pkw" if p[0][1] == p[1][1] else "pka") for p in cs]
+
+    champ_combo = F.udf(__make_champ_combos, ArrayType(ArrayType(StringType())))
+
+    picks = df.map(lambda x: (x[0], x[7], x[9]))\
+              .toDF(["gameid", "side", "champion"])\
+              .groupBy("gameid")\
+              .agg(F.collect_list("champion").alias("champ"), 
+                   F.collect_list("side").alias("side"))\
+              .select("gameid", F.explode(champ_combo(F.col("champ"), F.col("side"))).alias("combo"))
+
+    picks = picks.select("gameid", 
+                         picks.combo.getItem(0).alias("champ_a"),
+                         picks.combo.getItem(1).alias("champ_b"),
+                         picks.combo.getItem(2).alias("link_type"))
+
+    ## append picks and bans
+    edge = picks.union(bans)
+
+    # return all three frames
+    return info, node, edge
+
+def meta_db_clean():
+
+    conn = psycopg2.connect(
+        host = os.environ.get("AWS_DATABASE_URL"),
+        dbname = os.environ.get("AWS_DATABASE_NAME"),
+        user = os.environ.get("AWS_DATABASE_USER"),
+        password = os.environ.get("AWS_DATABASE_PW")
     )
-    
-    # initialize empty data frames
-    pw = pd.DataFrame()
-    ba = pd.DataFrame()
 
-    def gen_pw(group_df):
-        new = pd.DataFrame()
-        new["pick_combos"] = list(itr.combinations(group_df.champion, 2))
-        
-        new[["champ_a", "champ_b"]] = pd.DataFrame(new.pick_combos.values.tolist(), 
-                                                        index=new.index)
-        new = new.drop(["pick_combos"], axis = 1)
-        new["link_type"] = "pick"
-        new["gameid"] = group_df.gameid.values[0]
-        return new
-    
-    def gen_ba(group_df):
-        new = pd.DataFrame()
-        # loop through ban columns
-        ban_combos = []
-        for ban in range(1,6):
-            ban_combos.extend(list(zip(group_df.champion.values, eval("group_df.ban%s.values" % ban))))
-        new["ban_combos"] = ban_combos
-        new[["champ_a", "champ_b"]] = pd.DataFrame(new.ban_combos.values.tolist(), 
-                                                        index=new.index)
-        new = new.drop(["ban_combos"], axis = 1)
-        new["link_type"] = "ban"
-        new["gameid"] = group_df.gameid.values[0]
-        return new
-    
-    # loop through all the groups
-    for name, group in df.groupby(["gameid", "side"], as_index=False):
-        pw = pw.append(gen_pw(group))
-        # grab banned against
-        ba = ba.append(gen_ba(group))
+    cur = conn.cursor()
 
-    return pw.append(ba)
+    # drop tables
 
-def gen_meta_info(filepath):
-    meta_info = pd.read_excel(filepath, sheet_name=0,
-                              usecols=["url", "league", "split", "date", 
-                                       "week", "patchno"])
-
-    # no valid gameid
-    meta_info = meta_info[meta_info.url.notnull()]
-    meta_info["gameid"] = meta_info.url.apply(
-        lambda x: str(urllib.parse.parse_qs(
-            urllib.parse.urlparse(x, allow_fragments=False).query
-        )["gameHash"][0])
+    ## metadata
+    cur.execute(
+        """
+        DROP TABLE IF EXISTS meta_info CASCADE;
+        """
     )
-    meta_info = meta_info.drop(["url"], axis=1)
-    return meta_info.drop_duplicates()
+    ## edgelist
+    cur.execute(
+        """
+        DROP TABLE IF EXISTS meta_edgelist CASCADE;
+        """
+    )
+    ## nodelist
+    cur.execute(
+        """
+        DROP TABLE IF EXISTS meta_nodelist CASCADE;
+        """
+    )
 
-class MetaDBClean(luigi.Task):
-    __complete = False
+    # finish up
+    conn.commit()
+    conn.close()
 
-    def run(self):
-
-        conn = psycopg2.connect(
-            host = os.environ.get("AWS_DATABASE_URL"),
-            dbname = os.environ.get("AWS_DATABASE_NAME"),
-            user = os.environ.get("AWS_DATABASE_USER"),
-            password = os.environ.get("AWS_DATABASE_PW")
-        )
-
-        cur = conn.cursor()
-
-        # drop tables
-
-        # metadata
-        cur.execute(
-            """
-            DROP TABLE IF EXISTS meta_info CASCADE;
-            """
-        )
-        # edgelist
-        cur.execute(
-            """
-            DROP TABLE IF EXISTS meta_edgelist CASCADE;
-            """
-        )
-        # nodelist
-        cur.execute(
-            """
-            DROP TABLE IF EXISTS meta_nodelist CASCADE;
-            """
-        )
-
-        # finish up
-        conn.commit()
-        conn.close()
-
-        self.__complete = True
+def meta_db_setup():
     
-    def complete(self):
-        return self.__complete
+    conn = psycopg2.connect(
+        host = os.environ.get("AWS_DATABASE_URL"),
+        dbname = os.environ.get("AWS_DATABASE_NAME"),
+        user = os.environ.get("AWS_DATABASE_USER"),
+        password = os.environ.get("AWS_DATABASE_PW")
+    )
 
-class MetaDBSetup(luigi.Task):
-    overwrite = luigi.BoolParameter(default=False)
-    __complete = False
+    cur = conn.cursor()
 
-    def requires(self):
-        if self.overwrite:
-            return MetaDBClean()
+    # create tables
+    
+    ## metadata
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS meta_info (
+            gameid TEXT PRIMARY KEY,
+            league TEXT,
+            split TEXT,
+            game_date TEXT,
+            week TEXT,
+            patchno TEXT
+        );
+        """
+    )
+    ## edgelist
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS meta_edgelist (
+            gameid TEXT REFERENCES meta_info(gameid) ON DELETE CASCADE,
+            champ_a TEXT,
+            champ_b TEXT,
+            link_type TEXT
+        );
+        """
+    )
+    ## nodelist
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS meta_nodelist (
+            gameid TEXT REFERENCES meta_info(gameid) ON DELETE CASCADE,
+            side TEXT,
+            position TEXT,
+            champ TEXT,
+            result INTEGER,
+            k INTEGER CHECK (k >= 0),
+            d INTEGER CHECK (d >= 0),
+            a INTEGER CHECK (a >= 0)
+        );
+        """
+    )
 
-    def run(self):
-        
-        conn = psycopg2.connect(
-            host = os.environ.get("AWS_DATABASE_URL"),
-            dbname = os.environ.get("AWS_DATABASE_NAME"),
-            user = os.environ.get("AWS_DATABASE_USER"),
-            password = os.environ.get("AWS_DATABASE_PW")
-        )
-
-        cur = conn.cursor()
-
-        # create tables
-        
-        # metadata
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS meta_info (
-                gameid TEXT PRIMARY KEY,
-                league TEXT,
-                split TEXT,
-                game_date DATE,
-                week TEXT,
-                patchno TEXT
-            );
-            """
-        )
-        # edgelist
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS meta_edgelist (
-                gameid TEXT REFERENCES meta_info(gameid) ON DELETE CASCADE,
-                champ_a TEXT,
-                champ_b TEXT,
-                link_type TEXT
-            );
-            """
-        )
-        # nodelist
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS meta_nodelist (
-                gameid TEXT REFERENCES meta_info(gameid) ON DELETE CASCADE,
-                side TEXT,
-                position TEXT,
-                champ TEXT,
-                result INTEGER,
-                k INTEGER CHECK (k >= 0),
-                d INTEGER CHECK (d >= 0),
-                a INTEGER CHECK (a >= 0)
-            );
-            """
-        )
-
-        # finish up
-        conn.commit()
-        conn.close()
-
-        self.__complete = True
-
-    def complete(self):
-        return self.__complete
-
-class MetaUpload(luigi.Task):
-    overwrite = luigi.BoolParameter(default=False)
-    ingest_dir = luigi.Parameter(default="/data/raw")
-    __complete = False
-
-    def requires(self):
-        return MetaDBSetup(self.overwrite)
-
-    def run(self):
-
-        conn = psycopg2.connect(
-            host = os.environ.get("AWS_DATABASE_URL"),
-            dbname = os.environ.get("AWS_DATABASE_NAME"),
-            user = os.environ.get("AWS_DATABASE_USER"),
-            password = os.environ.get("AWS_DATABASE_PW"),
-            connect_timeout = 18000
-        )
-
-        cur = conn.cursor()
-
-        # read file information
-        files = []
-        for r, d, f in os.walk(self.ingest_dir):
-            for f_ in f:
-                if ".xlsx" in f_:
-                    files.append(os.path.join(r, f_))
-
-        # insert sql
-        
-        
-        insert_info = """
-                      INSERT INTO meta_info (league, split, game_date, week, patchno, gameid)
-                      VALUES (%s, %s, %s, %s, %s, %s);
-                      """
-        insert_el = """
-                    INSERT INTO meta_edgelist (champ_a, champ_b, link_type, gameid) 
-                    VALUES (%s, %s, %s, %s);
-                    """
-        insert_nl = """
-                    INSERT INTO meta_nodelist (side, position, champ, result, k, d, a, gameid)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s);
-                    """
-
-        # upload to db
-        for f in files:
-
-            # metadata
-            info = gen_meta_info(f)
-            cur.executemany(
-                query = insert_info,
-                vars_list = [tuple(row)[1:] for row in info.itertuples()]
-            )
-            del info
-            # edgelist
-            el = gen_meta_edgelist(f)
-            cur.executemany(
-                query = insert_el,
-                vars_list = [tuple(row)[1:] for row in el.itertuples()]
-            )
-            del el
-            # nodelist
-            nl = gen_meta_nodelist(f)
-            cur.executemany(
-                query = insert_nl,
-                vars_list = [tuple(row)[1:] for row in nl.itertuples()]
-            )
-            del nl
-
-        # close connection
-        conn.commit()
-        conn.close()
-
-        self.__complete = True
-
-    def complete(self):
-        return self.__complete
+    # finish up
+    conn.commit()
+    conn.close()
