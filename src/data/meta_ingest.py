@@ -4,7 +4,6 @@ import os
 import pathlib
 import urllib.parse
 import itertools as itr
-import luigi
 import psycopg2
 import pandas as pd
 
@@ -13,12 +12,21 @@ import dotenv
 dotenv.load_dotenv(dotenv.find_dotenv())
 
 # spark setup
+import findspark
+findspark.init()
 from pyspark import SparkContext, SparkConf
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.types import ArrayType, StringType
 
-def read_oracle_data(f, sqlContext):
+# initialize spark contexts
+try:
+    sc and sqlContext
+except NameError as e:
+    sc = SparkContext()
+    sqlContext = SparkSession(sc)
+
+def read_oracle_data(f):
 
     # read in the data
     df = sqlContext.read.csv(f, header=True)
@@ -98,194 +106,95 @@ def read_oracle_data(f, sqlContext):
     # return all three frames
     return info, node, edge
 
-class MetaDBClean(luigi.Task):
-    __complete = False
+def meta_db_clean():
 
-    def run(self):
+    conn = psycopg2.connect(
+        host = os.environ.get("AWS_DATABASE_URL"),
+        dbname = os.environ.get("AWS_DATABASE_NAME"),
+        user = os.environ.get("AWS_DATABASE_USER"),
+        password = os.environ.get("AWS_DATABASE_PW")
+    )
 
-        conn = psycopg2.connect(
-            host = os.environ.get("AWS_DATABASE_URL"),
-            dbname = os.environ.get("AWS_DATABASE_NAME"),
-            user = os.environ.get("AWS_DATABASE_USER"),
-            password = os.environ.get("AWS_DATABASE_PW")
-        )
+    cur = conn.cursor()
 
-        cur = conn.cursor()
+    # drop tables
 
-        # drop tables
+    ## metadata
+    cur.execute(
+        """
+        DROP TABLE IF EXISTS meta_info CASCADE;
+        """
+    )
+    ## edgelist
+    cur.execute(
+        """
+        DROP TABLE IF EXISTS meta_edgelist CASCADE;
+        """
+    )
+    ## nodelist
+    cur.execute(
+        """
+        DROP TABLE IF EXISTS meta_nodelist CASCADE;
+        """
+    )
 
-        # metadata
-        cur.execute(
-            """
-            DROP TABLE IF EXISTS meta_info CASCADE;
-            """
-        )
-        # edgelist
-        cur.execute(
-            """
-            DROP TABLE IF EXISTS meta_edgelist CASCADE;
-            """
-        )
-        # nodelist
-        cur.execute(
-            """
-            DROP TABLE IF EXISTS meta_nodelist CASCADE;
-            """
-        )
+    # finish up
+    conn.commit()
+    conn.close()
 
-        # finish up
-        conn.commit()
-        conn.close()
-
-        self.__complete = True
+def meta_db_setup():
     
-    def complete(self):
-        return self.__complete
+    conn = psycopg2.connect(
+        host = os.environ.get("AWS_DATABASE_URL"),
+        dbname = os.environ.get("AWS_DATABASE_NAME"),
+        user = os.environ.get("AWS_DATABASE_USER"),
+        password = os.environ.get("AWS_DATABASE_PW")
+    )
 
-class MetaDBSetup(luigi.Task):
-    overwrite = luigi.BoolParameter(default=False)
-    __complete = False
+    cur = conn.cursor()
 
-    def requires(self):
-        if self.overwrite:
-            return MetaDBClean()
+    # create tables
+    
+    ## metadata
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS meta_info (
+            gameid TEXT PRIMARY KEY,
+            league TEXT,
+            split TEXT,
+            game_date TEXT,
+            week TEXT,
+            patchno TEXT
+        );
+        """
+    )
+    ## edgelist
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS meta_edgelist (
+            gameid TEXT REFERENCES meta_info(gameid) ON DELETE CASCADE,
+            champ_a TEXT,
+            champ_b TEXT,
+            link_type TEXT
+        );
+        """
+    )
+    ## nodelist
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS meta_nodelist (
+            gameid TEXT REFERENCES meta_info(gameid) ON DELETE CASCADE,
+            side TEXT,
+            position TEXT,
+            champ TEXT,
+            result INTEGER,
+            k INTEGER CHECK (k >= 0),
+            d INTEGER CHECK (d >= 0),
+            a INTEGER CHECK (a >= 0)
+        );
+        """
+    )
 
-    def run(self):
-        
-        conn = psycopg2.connect(
-            host = os.environ.get("AWS_DATABASE_URL"),
-            dbname = os.environ.get("AWS_DATABASE_NAME"),
-            user = os.environ.get("AWS_DATABASE_USER"),
-            password = os.environ.get("AWS_DATABASE_PW")
-        )
-
-        cur = conn.cursor()
-
-        # create tables
-        
-        # metadata
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS meta_info (
-                gameid TEXT PRIMARY KEY,
-                league TEXT,
-                split TEXT,
-                game_date TEXT,
-                week TEXT,
-                patchno TEXT
-            );
-            """
-        )
-        # edgelist
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS meta_edgelist (
-                gameid TEXT REFERENCES meta_info(gameid) ON DELETE CASCADE,
-                champ_a TEXT,
-                champ_b TEXT,
-                link_type TEXT
-            );
-            """
-        )
-        # nodelist
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS meta_nodelist (
-                gameid TEXT REFERENCES meta_info(gameid) ON DELETE CASCADE,
-                side TEXT,
-                position TEXT,
-                champ TEXT,
-                result INTEGER,
-                k INTEGER CHECK (k >= 0),
-                d INTEGER CHECK (d >= 0),
-                a INTEGER CHECK (a >= 0)
-            );
-            """
-        )
-
-        # finish up
-        conn.commit()
-        conn.close()
-
-        self.__complete = True
-
-    def complete(self):
-        return self.__complete
-
-class MetaUpload(luigi.Task):
-    overwrite = luigi.BoolParameter(default=False)
-    ingest_dir = luigi.Parameter(default="/data/raw")
-    __complete = False
-
-    def requires(self):
-        return MetaDBSetup(self.overwrite)
-
-    def run(self):
-
-        # read file information
-        files = []
-        for r, d, f in os.walk(self.ingest_dir):
-            for f_ in f:
-                if ".xlsx" in f_:
-                    files.append(os.path.join(r, f_))
-
-        # insert sql        
-        insert_info = """
-                      INSERT INTO meta_info (gameid, league, split, game_date, week, patchno)
-                      VALUES (%s, %s, %s, %s, %s, %s);
-                      """
-        insert_el = """
-                    INSERT INTO meta_edgelist (champ_a, champ_b, link_type, gameid) 
-                    VALUES (%s, %s, %s, %s);
-                    """
-        insert_nl = """
-                    INSERT INTO meta_nodelist (gameid, side, position, champ, result, k, d, a)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s);
-                    """
-
-        # upload to db
-        for f in files:
-            
-            # connect to db
-            conn = psycopg2.connect(
-                host = os.environ.get("AWS_DATABASE_URL"),
-                dbname = os.environ.get("AWS_DATABASE_NAME"),
-                user = os.environ.get("AWS_DATABASE_USER"),
-                password = os.environ.get("AWS_DATABASE_PW"),
-                connect_timeout = 18000
-            )
-            cur = conn.cursor()
-
-            print(f, "UPLOADING...")
-
-            # metadata
-            info = gen_meta_info(f)
-            cur.executemany(
-                query = insert_info,
-                vars_list = [tuple(row)[1:] for row in info.itertuples()]
-            )
-            # edgelist
-            el = gen_meta_edgelist(f, info)
-            cur.executemany(
-                query = insert_el,
-                vars_list = [tuple(row)[1:] for row in el.itertuples()]
-            )
-            del el
-            # nodelist
-            nl = gen_meta_nodelist(f, info)
-            cur.executemany(
-                query = insert_nl,
-                vars_list = [tuple(row)[1:] for row in nl.itertuples()]
-            )
-            del nl, info
-
-            print(f, "DONE!!!")
-
-        # close connection
-        conn.commit()
-        conn.close()
-
-        self.__complete = True
-
-    def complete(self):
-        return self.__complete
+    # finish up
+    conn.commit()
+    conn.close()
