@@ -17,7 +17,7 @@ findspark.init()
 from pyspark import SparkContext, SparkConf
 from pyspark.sql import SparkSession, DataFrameWriter
 from pyspark.sql import functions as F
-from pyspark.sql.types import ArrayType, StringType
+from pyspark.sql.types import StructField, StructType, ArrayType, StringType, IntegerType
 
 # initialize spark context
 def init_pyspark_context():
@@ -64,12 +64,26 @@ def read_oracle_data(f):
 
     # metadata frame
     info = df.map(lambda x: (x[0], *x[2:7]))\
-             .toDF(["gameid", "league", "split", "game_date", "week", "patchno"])\
+             .toDF(["gameid", "league", "split", "game_date", "week", "patchno"],
+                   schema=StructType([StructField("gameid", StringType()), 
+                                      StructField("league", StringType()), 
+                                      StructField("split", StringType()), 
+                                      StructField("game_date", StringType()), 
+                                      StructField("week", StringType()), 
+                                      StructField("patchno", StringType())]))\
              .dropDuplicates()
 
     # nodelist frame
     node = df.map(lambda x: (x[0], *x[7:14]))\
-             .toDF(["gameid", "side", "position", "champ", "result", "k", "d", "a"])
+             .toDF(["gameid", "side", "position", "champ", "result", "k", "d", "a"],
+                   schema=StructType([StructField("gameid", StringType()),
+                                      StructField("side", StringType()),
+                                      StructField("position", StringType()),
+                                      StructField("champ", StringType()),
+                                      StructField("result", IntegerType()),
+                                      StructField("k", IntegerType()),
+                                      StructField("d", IntegerType()),
+                                      StructField("a", IntegerType())]))
 
     # edgelist frame
 
