@@ -15,18 +15,22 @@ dotenv.load_dotenv(dotenv.find_dotenv())
 import findspark
 findspark.init()
 from pyspark import SparkContext, SparkConf
-from pyspark.sql import SparkSession
+from pyspark.sql import SparkSession, DataFrameWriter
 from pyspark.sql import functions as F
 from pyspark.sql.types import ArrayType, StringType
 
-# initialize spark contexts
-try:
-    sc and sqlContext
-except NameError as e:
-    sc = SparkContext()
-    sqlContext = SparkSession(sc)
+# initialize spark context
+def init_pyspark_context():
+    global sc
+    global sqlContext
+    try:
+        sc and sqlContext
+    except NameError as e:
+        sc = SparkContext()
+        sqlContext = SparkSession(sc)
 
 def read_oracle_data(f):
+    init_pyspark_context()
 
     # read in the data
     df = sqlContext.read.csv(f, header=True)
@@ -65,7 +69,7 @@ def read_oracle_data(f):
 
     # nodelist frame
     node = df.map(lambda x: (x[0], *x[7:14]))\
-             .toDF(["gameid", "side", "position", "champion", "result", "k", "d", "a"])
+             .toDF(["gameid", "side", "position", "champ", "result", "k", "d", "a"])
 
     # edgelist frame
 
@@ -198,3 +202,37 @@ def meta_db_setup():
     # finish up
     conn.commit()
     conn.close()
+
+def upload_oracle_dir(ingest_dir):
+    init_pyspark_context()
+
+    # read file information
+    files = []
+    for r, d, f in os.walk(ingest_dir):
+        for f_ in f:
+            if ".csv" in f_:
+                files.append(os.path.join(r, f_))
+
+    # prep connection    
+    url = "jdbc:postgresql://%s:%s/%s" \
+        % (os.environ.get("AWS_DATABASE_URL"), os.environ.get("AWS_DATABASE_PORT"),
+           os.environ.get("AWS_DATABASE_NAME"))
+    print(url)
+    properties = {
+        "user":os.environ.get("AWS_DATABASE_USER"),
+        "password":os.environ.get("AWS_DATABASE_PW"),
+        "driver":"org.postgresql.Driver"  
+    }
+
+    for f in files:
+        print(f, "UPLOADING...")
+        # read in data
+        info, node, edge = read_oracle_data(f)
+        print(f, "READ...")
+        # write up to postgresql
+        info.write.jdbc(url=url, table="meta_info", mode="append", properties=properties)
+        node.write.jdbc(url=url, table="meta_nodelist", mode="append", properties=properties)
+        edge.write.jdbc(url=url, table="meta_edgelist", mode="append", properties=properties)
+        # clear frames
+        del info, node, edge
+        print(f, "DONE!")
