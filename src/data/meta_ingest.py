@@ -64,26 +64,12 @@ def read_oracle_data(f):
 
     # metadata frame
     info = df.map(lambda x: (x[0], *x[2:7]))\
-             .toDF(["gameid", "league", "split", "game_date", "week", "patchno"],
-                   schema=StructType([StructField("gameid", StringType()), 
-                                      StructField("league", StringType()), 
-                                      StructField("split", StringType()), 
-                                      StructField("game_date", StringType()), 
-                                      StructField("week", StringType()), 
-                                      StructField("patchno", StringType())]))\
+             .toDF(["gameid", "league", "split", "game_date", "week", "patchno"])\
              .dropDuplicates()
 
     # nodelist frame
     node = df.map(lambda x: (x[0], *x[7:14]))\
-             .toDF(["gameid", "side", "position", "champ", "result", "k", "d", "a"],
-                   schema=StructType([StructField("gameid", StringType()),
-                                      StructField("side", StringType()),
-                                      StructField("position", StringType()),
-                                      StructField("champ", StringType()),
-                                      StructField("result", IntegerType()),
-                                      StructField("k", IntegerType()),
-                                      StructField("d", IntegerType()),
-                                      StructField("a", IntegerType())]))
+             .toDF(["gameid", "side", "position", "champ", "result", "k", "d", "a"])
 
     # edgelist frame
 
@@ -205,10 +191,10 @@ def meta_db_setup():
             side TEXT,
             position TEXT,
             champ TEXT,
-            result INTEGER,
-            k INTEGER CHECK (k >= 0),
-            d INTEGER CHECK (d >= 0),
-            a INTEGER CHECK (a >= 0)
+            result TEXT,
+            k TEXT,
+            d TEXT,
+            a TEXT
         );
         """
     )
@@ -239,10 +225,10 @@ def upload_oracle_dir(ingest_dir):
     }
 
     for f in files:
-        print(f, "UPLOADING...")
+        print(f, "READING...")
         # read in data
         info, node, edge = read_oracle_data(f)
-        print(f, "READ...")
+        print(f, "UPLOADING...")
         # write up to postgresql
         info.write.jdbc(url=url, table="meta_info", mode="append", properties=properties)
         node.write.jdbc(url=url, table="meta_nodelist", mode="append", properties=properties)
