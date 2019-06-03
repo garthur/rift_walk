@@ -23,7 +23,7 @@ def main():
             meta_ingest.meta_db_clean()
             meta_ingest.meta_db_setup()
         
-        meta_ingest.upload_oracle_dir(arguments["<oracle-dir>"])
+        meta_ingest.push_oracle_data(arguments["<oracle-dir>"])
 
 if __name__ == "__main__":
     main()
