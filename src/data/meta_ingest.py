@@ -17,10 +17,10 @@ findspark.init()
 from pyspark import SparkContext, SparkConf
 from pyspark.sql import SparkSession, DataFrameWriter
 from pyspark.sql import functions as F
-from pyspark.sql.types import StructField, StructType, ArrayType, StringType, IntegerType
+from pyspark.sql.types import StructField, StructType, ArrayType, StringType, IntegerType, DateType
 
 # initialize spark context
-def init_pyspark_context():
+def __init_spark():
     global sc
     global sqlContext
     try:
@@ -30,7 +30,7 @@ def init_pyspark_context():
         sqlContext = SparkSession(sc)
 
 def read_oracle_data(f):
-    init_pyspark_context()
+    __init_spark()
 
     # read in the data
     df = sqlContext.read.csv(f, header=True)
@@ -65,11 +65,18 @@ def read_oracle_data(f):
     # metadata frame
     info = df.map(lambda x: (x[0], *x[2:7]))\
              .toDF(["gameid", "league", "split", "game_date", "week", "patchno"])\
-             .dropDuplicates()
+             .dropDuplicates()\
+             .withColumn("game_date", F.when(F.col("game_date") != "", F.col("game_date")))\
+             .withColumn("game_date", F.from_unixtime(F.unix_timestamp("game_date", "mm/dd/yyyy"), 'yyyy-mm-dd'))\
+             .withColumn("game_date", F.col("game_date").cast(DateType()))
 
     # nodelist frame
     node = df.map(lambda x: (x[0], *x[7:14]))\
-             .toDF(["gameid", "side", "position", "champ", "result", "k", "d", "a"])
+             .toDF(["gameid", "side", "position", "champ", "result", "k", "d", "a"])\
+             .withColumn("result", F.col("result").cast(IntegerType()))\
+             .withColumn("k", F.col("k").cast(IntegerType()))\
+             .withColumn("d", F.col("d").cast(IntegerType()))\
+             .withColumn("a", F.col("a").cast(IntegerType()))
 
     # edgelist frame
 
@@ -110,8 +117,8 @@ def read_oracle_data(f):
     # return all three frames
     return info, node, edge
 
-def meta_db_clean():
-
+def __prep_dbconnect():
+    
     conn = psycopg2.connect(
         host = os.environ.get("AWS_DATABASE_URL"),
         dbname = os.environ.get("AWS_DATABASE_NAME"),
@@ -120,6 +127,25 @@ def meta_db_clean():
     )
 
     cur = conn.cursor()
+    
+    return conn, cur
+
+def __prep_sparkconnect():
+    url = "jdbc:postgresql://%s:%s/%s" \
+        % (os.environ.get("AWS_DATABASE_URL"), os.environ.get("AWS_DATABASE_PORT"),
+           os.environ.get("AWS_DATABASE_NAME"))
+    
+    properties = {
+        "user":os.environ.get("AWS_DATABASE_USER"),
+        "password":os.environ.get("AWS_DATABASE_PW"),
+        "driver":"org.postgresql.Driver"  
+    }
+
+    return url, properties
+
+def meta_db_clean():
+
+    conn, cur = __prep_dbconnect()
 
     # drop tables
 
@@ -148,14 +174,7 @@ def meta_db_clean():
 
 def meta_db_setup():
     
-    conn = psycopg2.connect(
-        host = os.environ.get("AWS_DATABASE_URL"),
-        dbname = os.environ.get("AWS_DATABASE_NAME"),
-        user = os.environ.get("AWS_DATABASE_USER"),
-        password = os.environ.get("AWS_DATABASE_PW")
-    )
-
-    cur = conn.cursor()
+    conn, cur = __prep_dbconnect()
 
     # create tables
     
@@ -166,7 +185,7 @@ def meta_db_setup():
             gameid TEXT PRIMARY KEY,
             league TEXT,
             split TEXT,
-            game_date TEXT,
+            game_date DATE,
             week TEXT,
             patchno TEXT
         );
@@ -191,10 +210,10 @@ def meta_db_setup():
             side TEXT,
             position TEXT,
             champ TEXT,
-            result TEXT,
-            k TEXT,
-            d TEXT,
-            a TEXT
+            result INTEGER,
+            k INTEGER,
+            d INTEGER,
+            a INTEGER
         );
         """
     )
@@ -203,8 +222,8 @@ def meta_db_setup():
     conn.commit()
     conn.close()
 
-def upload_oracle_dir(ingest_dir):
-    init_pyspark_context()
+def push_oracle_data(ingest_dir):
+    __init_spark()
 
     # read file information
     files = []
@@ -214,15 +233,7 @@ def upload_oracle_dir(ingest_dir):
                 files.append(os.path.join(r, f_))
 
     # prep connection    
-    url = "jdbc:postgresql://%s:%s/%s" \
-        % (os.environ.get("AWS_DATABASE_URL"), os.environ.get("AWS_DATABASE_PORT"),
-           os.environ.get("AWS_DATABASE_NAME"))
-    print(url)
-    properties = {
-        "user":os.environ.get("AWS_DATABASE_USER"),
-        "password":os.environ.get("AWS_DATABASE_PW"),
-        "driver":"org.postgresql.Driver"  
-    }
+    url, properties = __prep_sparkconnect()
 
     for f in files:
         print(f, "READING...")
@@ -236,3 +247,55 @@ def upload_oracle_dir(ingest_dir):
         # clear frames
         del info, node, edge
         print(f, "DONE!")
+
+def fetch_oracle_data(subset):
+    __init_spark()
+    # prep connection
+    url, properties = __prep_sparkconnect()
+
+    #TODO: fix this dynamic query
+    _info_sql = """
+        (SELECT * FROM meta_info WHERE
+            ('{0}' = 'None' or league = '{0}') AND
+            ('{1}' = 'None' or split = '{1}') AND
+            ('{2}' = 'None' or '{3}' = 'None' or game_date between '{2}' and '{3}') AND
+            ('{4}' = 'None' or patchno = '{4}')
+        ) AS info;
+    """
+    _node_sql = """
+        (SELECT * from meta_nodelist WHERE
+            gameid in {}
+        ) AS node;
+    """
+    _edge_sql = """
+        (SELECT * from meta_edgelist WHERE
+            gameid in {}
+        ) AS edge;
+    """
+
+    print(_info_sql.format(subset["league"], subset["split"], 
+                            subset["start_date"], subset["end_date"], 
+                            subset["patchno"])
+
+    info = sqlContext.read.jdbc(url=url, 
+                                table=_info_sql.format(
+                                    subset["league"], subset["split"], 
+                                    subset["start_date"], subset["end_date"], 
+                                    subset["patchno"]
+                                ), 
+                                properties=properties)
+
+    gameid_arr = str([str(row.gameid) for row in info.select("gameid").collect()])
+    gameid_arr = gameid_arr.replace("[", "{")\
+                           .replace("]", "}")\
+                           .replace("\n", ",")
+
+    node = sqlContext.read.jdbc(url=url,
+                                table = _node_sql.format(gameid_arr),
+                                properties=properties)
+    
+    edge = sqlContext.read.jdbc(url=url,
+                                table=_edge_sql.format(gameid_arr),
+                                properties=properties)
+
+    return info, node, edge
