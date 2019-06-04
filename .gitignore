@@ -1,0 +1,5 @@
+.vscode/*
+*.zip
+*.pyc
+.env
+/rift_walk.egg-info/*
