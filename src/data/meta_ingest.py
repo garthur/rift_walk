@@ -5,7 +5,8 @@ import pathlib
 import urllib.parse
 import itertools as itr
 import psycopg2
-import pandas as pd
+import json
+import uuid
 
 # load environment variables
 import dotenv
@@ -21,6 +22,9 @@ from pyspark.sql.types import StructField, StructType, ArrayType, StringType, In
 
 # initialize spark context
 def __init_spark():
+    """
+    Initialize a spark context if none exists.
+    """
     global sc
     global sqlContext
     try:
@@ -30,6 +34,15 @@ def __init_spark():
         sqlContext = SparkSession(sc)
 
 def read_oracle_data(f):
+    """
+    Read data from 'https://oracleselixir.com/match-data/'. Produces a metadata
+    frame, a nodelist, and an edgelist.
+
+    Arguments:
+
+    f -- the .csv to be read.
+    """
+
     __init_spark()
 
     # read in the data
@@ -118,6 +131,10 @@ def read_oracle_data(f):
     return info, node, edge
 
 def __prep_dbconnect():
+    """
+    Prepare a connection to a postgresql database using psycopg2. Requires 
+    a .env file with relevant information in a higher directory.
+    """
     
     conn = psycopg2.connect(
         host = os.environ.get("AWS_DATABASE_URL"),
@@ -131,6 +148,11 @@ def __prep_dbconnect():
     return conn, cur
 
 def __prep_sparkconnect():
+    """
+    Prepare a connection to a postgresql database using pyspark. Requires 
+    a .env file with relevant information in a higher directory.
+    """
+
     url = "jdbc:postgresql://%s:%s/%s" \
         % (os.environ.get("AWS_DATABASE_URL"), os.environ.get("AWS_DATABASE_PORT"),
            os.environ.get("AWS_DATABASE_NAME"))
@@ -144,6 +166,9 @@ def __prep_sparkconnect():
     return url, properties
 
 def meta_db_clean():
+    """
+    Cleans the connected database.
+    """
 
     conn, cur = __prep_dbconnect()
 
@@ -173,6 +198,9 @@ def meta_db_clean():
     conn.close()
 
 def meta_db_setup():
+    """
+    Setup a new postgresql database.
+    """
     
     conn, cur = __prep_dbconnect()
 
@@ -223,6 +251,14 @@ def meta_db_setup():
     conn.close()
 
 def push_oracle_data(ingest_dir):
+    """
+    Ingest a directory and push all data to the connected database.
+
+    Arguments:
+
+    ingest_dir -- the directory of .csv files to be uploaded
+    """
+
     __init_spark()
 
     # read file information
@@ -249,33 +285,38 @@ def push_oracle_data(ingest_dir):
         print(f, "DONE!")
 
 def fetch_oracle_data(subset):
+    """
+    Load metadata, nodelist, edgelist frin database using a subset dictionary.
+
+    Arguments:
+
+    subset -- A dictionary with at least 'league', 'split', 'start_date',
+              'end_date', and 'patchno' entries. All but 'start_date' and 
+              'end_date' can be None.
+    """
+
     __init_spark()
     # prep connection
     url, properties = __prep_sparkconnect()
 
-    #TODO: fix this dynamic query
     _info_sql = """
         (SELECT * FROM meta_info WHERE
-            ('{0}' = 'None' or league = '{0}') AND
-            ('{1}' = 'None' or split = '{1}') AND
-            ('{2}' = 'None' or '{3}' = 'None' or game_date between '{2}' and '{3}') AND
-            ('{4}' = 'None' or patchno = '{4}')
-        ) AS info;
+            ('{0}' = 'None' OR league = '{0}') AND
+            ('{1}' = 'None' OR split = '{1}') AND
+            (game_date BETWEEN '{2}' AND '{3}') AND
+            ('{4}' = 'None' OR patchno = '{4}')) 
+        AS info
     """
     _node_sql = """
         (SELECT * from meta_nodelist WHERE
             gameid in {}
-        ) AS node;
+        ) AS node
     """
     _edge_sql = """
         (SELECT * from meta_edgelist WHERE
             gameid in {}
-        ) AS edge;
+        ) AS edge
     """
-
-    print(_info_sql.format(subset["league"], subset["split"], 
-                            subset["start_date"], subset["end_date"], 
-                            subset["patchno"])
 
     info = sqlContext.read.jdbc(url=url, 
                                 table=_info_sql.format(
@@ -286,8 +327,8 @@ def fetch_oracle_data(subset):
                                 properties=properties)
 
     gameid_arr = str([str(row.gameid) for row in info.select("gameid").collect()])
-    gameid_arr = gameid_arr.replace("[", "{")\
-                           .replace("]", "}")\
+    gameid_arr = gameid_arr.replace("[", "(")\
+                           .replace("]", ")")\
                            .replace("\n", ",")
 
     node = sqlContext.read.jdbc(url=url,
@@ -299,3 +340,23 @@ def fetch_oracle_data(subset):
                                 properties=properties)
 
     return info, node, edge
+
+#TODO: change this method to write an hd5
+def pull_oracle_data(out_dir, subset):
+    __init_spark()
+
+    # fetch the relevant table subsets
+    info, node, edge = fetch_oracle_data(subset)
+
+    # get a uuid
+    identifier = str(uuid.uuid4())
+
+    # write them to parquet columnar format
+    info.write.parquet(os.path.join(out_dir, identifier, "info.csv"), mode="overwrite")
+    node.write.parquet(os.path.join(out_dir, identifier, "node.csv"), mode="overwrite")
+    edge.write.parquet(os.path.join(out_dir, identifier, "edge.csv"), mode="overwrite")
+    
+    with open(os.path.join(out_dir, identifier, "subset.json"), "w") as f:
+        json.dump(subset, f)
+
+    return os.path.join(out_dir, identifier)

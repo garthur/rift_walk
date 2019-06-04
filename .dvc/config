@@ -1,5 +1,0 @@
-
-['remote "codex"']
-url = s3://rift-walk/codex
-[core]
-remote = codex
