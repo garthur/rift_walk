@@ -5,7 +5,8 @@ import pathlib
 import urllib.parse
 import itertools as itr
 import psycopg2
-import pandas as pd
+import json
+import uuid
 
 # load environment variables
 import dotenv
@@ -253,29 +254,24 @@ def fetch_oracle_data(subset):
     # prep connection
     url, properties = __prep_sparkconnect()
 
-    #TODO: fix this dynamic query
     _info_sql = """
         (SELECT * FROM meta_info WHERE
-            ('{0}' = 'None' or league = '{0}') AND
-            ('{1}' = 'None' or split = '{1}') AND
-            ('{2}' = 'None' or '{3}' = 'None' or game_date between '{2}' and '{3}') AND
-            ('{4}' = 'None' or patchno = '{4}')
-        ) AS info;
+            ('{0}' = 'None' OR league = '{0}') AND
+            ('{1}' = 'None' OR split = '{1}') AND
+            (game_date BETWEEN '{2}' AND '{3}') AND
+            ('{4}' = 'None' OR patchno = '{4}')) 
+        AS info
     """
     _node_sql = """
         (SELECT * from meta_nodelist WHERE
             gameid in {}
-        ) AS node;
+        ) AS node
     """
     _edge_sql = """
         (SELECT * from meta_edgelist WHERE
             gameid in {}
-        ) AS edge;
+        ) AS edge
     """
-
-    print(_info_sql.format(subset["league"], subset["split"], 
-                            subset["start_date"], subset["end_date"], 
-                            subset["patchno"])
 
     info = sqlContext.read.jdbc(url=url, 
                                 table=_info_sql.format(
@@ -286,8 +282,8 @@ def fetch_oracle_data(subset):
                                 properties=properties)
 
     gameid_arr = str([str(row.gameid) for row in info.select("gameid").collect()])
-    gameid_arr = gameid_arr.replace("[", "{")\
-                           .replace("]", "}")\
+    gameid_arr = gameid_arr.replace("[", "(")\
+                           .replace("]", ")")\
                            .replace("\n", ",")
 
     node = sqlContext.read.jdbc(url=url,
@@ -299,3 +295,23 @@ def fetch_oracle_data(subset):
                                 properties=properties)
 
     return info, node, edge
+
+#TODO: change this method to write an hd5
+def pull_oracle_data(out_dir, subset):
+    __init_spark()
+
+    # fetch the relevant table subsets
+    info, node, edge = fetch_oracle_data(subset)
+
+    # get a uuid
+    identifier = str(uuid.uuid4())
+
+    # write them to parquet columnar format
+    info.write.parquet(os.path.join(out_dir, identifier, "info.csv"), mode="overwrite")
+    node.write.parquet(os.path.join(out_dir, identifier, "node.csv"), mode="overwrite")
+    edge.write.parquet(os.path.join(out_dir, identifier, "edge.csv"), mode="overwrite")
+    
+    with open(os.path.join(out_dir, identifier, "subset.json"), "w") as f:
+        json.dump(subset, f)
+
+    return os.path.join(out_dir, identifier)
