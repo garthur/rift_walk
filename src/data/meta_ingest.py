@@ -22,6 +22,9 @@ from pyspark.sql.types import StructField, StructType, ArrayType, StringType, In
 
 # initialize spark context
 def __init_spark():
+    """
+    Initialize a spark context if none exists.
+    """
     global sc
     global sqlContext
     try:
@@ -31,6 +34,15 @@ def __init_spark():
         sqlContext = SparkSession(sc)
 
 def read_oracle_data(f):
+    """
+    Read data from 'https://oracleselixir.com/match-data/'. Produces a metadata
+    frame, a nodelist, and an edgelist.
+
+    Arguments:
+
+    f -- the .csv to be read.
+    """
+
     __init_spark()
 
     # read in the data
@@ -119,6 +131,10 @@ def read_oracle_data(f):
     return info, node, edge
 
 def __prep_dbconnect():
+    """
+    Prepare a connection to a postgresql database using psycopg2. Requires 
+    a .env file with relevant information in a higher directory.
+    """
     
     conn = psycopg2.connect(
         host = os.environ.get("AWS_DATABASE_URL"),
@@ -132,6 +148,11 @@ def __prep_dbconnect():
     return conn, cur
 
 def __prep_sparkconnect():
+    """
+    Prepare a connection to a postgresql database using pyspark. Requires 
+    a .env file with relevant information in a higher directory.
+    """
+
     url = "jdbc:postgresql://%s:%s/%s" \
         % (os.environ.get("AWS_DATABASE_URL"), os.environ.get("AWS_DATABASE_PORT"),
            os.environ.get("AWS_DATABASE_NAME"))
@@ -145,6 +166,9 @@ def __prep_sparkconnect():
     return url, properties
 
 def meta_db_clean():
+    """
+    Cleans the connected database.
+    """
 
     conn, cur = __prep_dbconnect()
 
@@ -174,6 +198,9 @@ def meta_db_clean():
     conn.close()
 
 def meta_db_setup():
+    """
+    Setup a new postgresql database.
+    """
     
     conn, cur = __prep_dbconnect()
 
@@ -224,6 +251,14 @@ def meta_db_setup():
     conn.close()
 
 def push_oracle_data(ingest_dir):
+    """
+    Ingest a directory and push all data to the connected database.
+
+    Arguments:
+
+    ingest_dir -- the directory of .csv files to be uploaded
+    """
+
     __init_spark()
 
     # read file information
@@ -250,6 +285,16 @@ def push_oracle_data(ingest_dir):
         print(f, "DONE!")
 
 def fetch_oracle_data(subset):
+    """
+    Load metadata, nodelist, edgelist frin database using a subset dictionary.
+
+    Arguments:
+
+    subset -- A dictionary with at least 'league', 'split', 'start_date',
+              'end_date', and 'patchno' entries. All but 'start_date' and 
+              'end_date' can be None.
+    """
+
     __init_spark()
     # prep connection
     url, properties = __prep_sparkconnect()
