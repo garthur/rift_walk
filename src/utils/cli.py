@@ -25,11 +25,13 @@ def main():
             meta_ingest.meta_db_clean()
             meta_ingest.meta_db_setup()
         
+        # push a directory to db
         meta_ingest.push_oracle_data(arguments["<oracle-dir>"])
     
     elif arguments["pull"]:
         from src.data import meta_ingest
 
+        # construct subset dict
         subset = {}
         subset["league"] = arguments["<league>"] if arguments["--league"] else None
         subset["split"] = arguments["<split>"] if arguments["--split"] else None
@@ -37,6 +39,7 @@ def main():
         subset["end_date"] = arguments["<end>"] if arguments["--end"] else "2050-01-01"
         subset["patchno"] = arguments["<patch>"] if arguments["--patch"] else None
 
+        # pull down data and save in output-dir
         meta_ingest.pull_oracle_data(arguments["<output-dir>"], subset)
 
 if __name__ == "__main__":
