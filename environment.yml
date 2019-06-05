@@ -49,7 +49,6 @@ dependencies:
   - nbformat=4.4.0
   - networkx=2.3
   - notebook=5.7.8
-  - numpy=1.13.3
   - openssl=1.1.1b
   - pandas=0.24.2
   - pandoc=2.2.3.2
@@ -73,7 +72,6 @@ dependencies:
   - pyzmq=18.0.0
   - qt=5.9.7
   - qtconsole=4.4.4
-  - scipy=0.19.1
   - send2trash=1.5.0
   - setuptools=41.0.1
   - simplegeneric=0.8.1
@@ -105,6 +103,7 @@ dependencies:
     - appdirs==1.4.3
     - asciimatics==1.11.0
     - babel==2.7.0
+    - bids-validator==1.2.4
     - boto3==1.9.115
     - botocore==1.12.159
     - chardet==3.0.4
@@ -113,6 +112,7 @@ dependencies:
     - configparser==3.5.3
     - contextlib2==0.5.5
     - croniter==0.3.30
+    - cycler==0.10.0
     - dill==0.2.9
     - distro==1.4.0
     - docopt==0.6.2
@@ -142,26 +142,36 @@ dependencies:
     - itsdangerous==1.1.0
     - jinja2==2.10
     - jmespath==0.9.4
+    - joblib==0.13.2
     - json-merge-patch==0.2
     - jsonpath-ng==1.4.3
+    - kiwisolver==1.1.0
     - lockfile==0.12.2
     - lxml==4.3.3
     - mako==1.0.10
     - markdown==2.6.11
+    - matplotlib==3.1.0
     - nanotime==0.5.2
+    - nibabel==2.4.1
+    - nilearn==0.5.2
+    - num2words==0.5.10
+    - numpy==1.16.4
     - ordereddict==1.1
+    - patsy==0.5.1
     - pendulum==1.4.4
     - pillow==6.0.0
     - pip==19.1.1
     - ply==3.11
     - psutil==5.6.2
     - pyasn1==0.4.5
+    - pybids==0.9.1
     - pyfiglet==0.8.post1
     - pyparsing==2.4.0
     - pypiwin32==223
     - python-daemon==2.1.2
     - python-dotenv==0.10.2
     - python-editor==1.0.4
+    - python-louvain==0.13
     - python3-openid==3.1.0
     - pytzdata==2019.1
     - pywin32==224
@@ -170,11 +180,17 @@ dependencies:
     - ruamel-yaml==0.15.96
     - s3transfer==0.2.0
     - schema==0.7.0
+    - scikit-learn==0.21.2
+    - scipy==1.3.0
+    - seaborn==0.9.0
     - setproctitle==1.1.10
+    - sklearn==0.0
     - smmap2==2.0.5
     - sqlalchemy==1.2.19
+    - statsmodels==0.9.0
     - tabulate==0.8.3
     - tenacity==4.12.0
+    - teneto==0.4.3
     - text-unidecode==1.2
     - thrift==0.11.0
     - treelib==1.5.5
