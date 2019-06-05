@@ -2,5 +2,5 @@
 *.zip
 *.pyc
 .env
-.ipynb_checkpoints/*
+notebooks/.ipynb_checkpoints/*
 /rift_walk.egg-info/*
