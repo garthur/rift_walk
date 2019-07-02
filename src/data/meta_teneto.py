@@ -13,8 +13,6 @@ from pyspark import SparkContext
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 
-teneto.TemporalNetwork()
-
 # initialize spark context
 def __init_spark():
     global sc
@@ -26,6 +24,7 @@ def __init_spark():
         sqlContext = SparkSession(sc)
 
 def make_teneto_graph(info, edge, link_type="pkw", weighted=False):
+    
 
     # join frames together
     full_dat = info.join(edge, info.gameid == edge.gameid, how="right")
@@ -40,7 +39,7 @@ def make_teneto_graph(info, edge, link_type="pkw", weighted=False):
                        .sort("t", ascending=True)
     
     if weighted: 
-        pass # TODO: implemet weighted graphs
+        pass # TODO: implement weighted graphs
     else:
         full_dat = full_dat.dropDuplicates()
 
