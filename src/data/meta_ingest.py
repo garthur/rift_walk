@@ -286,7 +286,7 @@ def push_oracle_data(ingest_dir):
 
 def fetch_oracle_data(subset):
     """
-    Load metadata, nodelist, edgelist frin database using a subset dictionary.
+    Load metadata, nodelist, edgelist from database using a subset dictionary.
 
     Arguments:
 
