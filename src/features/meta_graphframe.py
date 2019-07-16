@@ -21,7 +21,7 @@ def __init_spark():
         sc = SparkContext()
         sqlContext = SparkSession(sc)
 
-class TemporalGraphFrame(object):
+class TGraphFrame(object):
     """
     A Temporal GraphFrame is a time-ordered list of Spark GraphFrames
     representing a Temporal Network. A variety of methods are available,
@@ -36,6 +36,7 @@ class TemporalGraphFrame(object):
         if(link == "ban"):
             raise TypeError("Temporal GraphFrames do not yet support ban-linked networks.")
 
+        self.link = link
 
         min_date = str(info.select(F.min("game_date")).first()[0])
 
@@ -47,32 +48,49 @@ class TemporalGraphFrame(object):
                         for t_ in self.metadata.select("t").distinct().rdd.flatMap(lambda x: x).collect()]
         
         # edgelist
-        def temporal_edgelist(edge):
-            # only get relevant links
-            edge = edge.filter(edge.link_type == link)
-            # TODO: collapse edgelist
-            
-            # generate a list splitting on game order
-            t_edge = [edge.filter(edge.gameid in games)\
-                          .selectExpr("champ_a as src", "champ_b as dst")\
-                          .withColumn("games", games) for games in game_order]
-                               
+        ## only get relevant links
+        edge = edge.filter(edge.link_type == link)
+        ## TODO: collapse edgelist
+        
+        ## generate a list of edge frames splitting on game order
+        t_edge = [edge.filter(edge.gameid in games)\
+                        .selectExpr("champ_a as src", "champ_b as dst")\
+                        .withColumn("games", games) for games in game_order]
 
-        # nodelist
-        def temporal_nodelist(node):
-            # TODO: collapse nodelist
-            
-            # generate a list of node frames splitting on game order
-            t_node = [node.filter(node.gameid in games)\
-                          .select("champion as id", "*")\
-                          .withColumn("games", games) for games in game_order]
+        ## TODO: test nodelist generation
+        
+        ## generate a list of node frames splitting on game order
+        t_node = [node.filter(lambda x: x[0] in games)\
+                      .groupBy("champ")\
+                      .agg(F.collect_list("side").alias("side"),
+                           F.collect_list("position").alias("position"),
+                           F.collect_list("result").alias("result"),
+                           F.collect_list("k").alias("k"),
+                           F.collect_list("d").alias("d"),
+                           F.collect_list("a").alias("a"))\
+                      .select("champ as id", "*")\
+                      .withColumn("games", games) for games in game_order]
 
-        pass
+        self.games = game_order
 
     @staticmethod
     def load(f):
         """
-        Load a Temporal GraphFrame from an HDF5 file.
+        Load a TGraphFrame from an HDF5 file.
+
+        Arguments:
+
+        f -- An HDF5 file dumped by a TGraphFrame object.
+        """
+        pass
+    
+    def dump(self, f):
+        """
+        Dump a Temporal GraphFrame to an HDF5 file.
+
+        Arguments:
+
+        f -- An HDF5 file to be dumped to. Does not have to exist.
         """
         pass
 
@@ -80,6 +98,10 @@ class TemporalGraphFrame(object):
         """
         Split the temporal network into one or more by a factor variable
         given in the `info` data frame.
+
+        Arguments:
+
+        fct_variable -- A factor variable which the network will be split into.
         """
         pass
 
