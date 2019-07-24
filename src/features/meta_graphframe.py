@@ -34,7 +34,7 @@ class TGraphFrame(object):
         and a node frame.
         """
         if(link == "ban"):
-            raise TypeError("Temporal GraphFrames do not yet support ban-linked networks.")
+            raise ValueError("Temporal GraphFrames do not yet support ban-linked networks.")
 
         self.link = link
 
