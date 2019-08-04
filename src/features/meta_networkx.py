@@ -148,11 +148,13 @@ class TNetworkX(object):
                     for N in self.network]
             network[0:self.periods] = x
 
+            # graph parameters
             params = f.create_group("params")
             params.attrs["periods"] = self.periods
             params.attrs["link_type"] = self.link_type
             params.attrs["graph_type"] = self.graph_type
             
+            # file metadata
             info = f.create_group("metadata")
             info.attrs["uid"] = str(uuid.uuid4())
             info.attrs["creation_date"] = str(datetime.datetime.now())

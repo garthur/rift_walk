@@ -1,6 +1,10 @@
-import itertools as itr
 import pandas as pd
+import numpy as np
 import teneto
+import h5py
+import json
+import uuid
+import datetime
 
 # load environment variables
 import dotenv
@@ -68,7 +72,7 @@ class TTeneto(teneto.classes.TemporalNetwork):
         
         super().__init__(from_df=full_dat, nodelabels=list(champ_key.keys()))
 
-    @staticmethod
+    @classmethod
     def load(f):
         """
         Load a TTeneto object from an HDF5 file.
@@ -79,14 +83,23 @@ class TTeneto(teneto.classes.TemporalNetwork):
         """
         pass
 
-    def dump(self, f):
+    def dump(self, f_):
         """
         Dump a TTeneto object to an HDF5 file.
 
         Arguments:
 
-        f -- An HDF5 file to be dumped to. Does not have to exist.
+        f_ -- An HDF5 file to be dumped to. Does not have to exist.
         """
-        pass
+        with h5py.File(f_, "w") as f:
+            f["TemporalNetwork"] = None
+
+
+            # file metadata
+            info = f.create_group("metadata")
+            info.attrs["uid"] = str(uuid.uuid4())
+            info.attrs["creation_date"] = str(datetime.datetime.now())
+
+            f.close()
 
     
