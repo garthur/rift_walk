@@ -1,3 +1,4 @@
+import itertools as itr
 import pandas as pd
 import numpy as np
 import teneto
@@ -91,9 +92,10 @@ class TTeneto(teneto.classes.TemporalNetwork):
 
         f_ -- An HDF5 file to be dumped to. Does not have to exist.
         """
+        # TODO: finish this
         with h5py.File(f_, "w") as f:
             
-            network = f.create_dataset("network", (self.periods,), dtype=h5py.special_dtype(vlen=bytes))
+            network = f.create_dataset("network")
 
             # graph parameters
 
