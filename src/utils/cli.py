@@ -1,13 +1,15 @@
 """Rift Walk - lol-meta-analysis
 
 Usage:
-    rift-walk-cli ingest <oracle-dir> --overwrite-db
+    rift-walk-cli ingest <input-dir> --overwrite-db
     rift-walk-cli pull <output-dir> [(--league <league>) (--split <split>) (--start <start>) (--end <end>) (--patch <patch>)]
+    rift-walk-cli ntwk <output-file> <driver> [(--league <league>) (--split <split>) (--start <start>) (--end <end>) (--patch <patch>)]
     rift-walk-cli -h
 
 Arguments:
-    <oracle-dir>                        Directory with csv files from 'https://oracleselixir.com/match-data/'.
-    <output-dir>                        Directory to write parquet files to. Files will be saved in a subdirectory.
+    <input-dir>                        Directory with csv files from 'https://oracleselixir.com/match-data/'.
+    <output-dir>                       Directory to write parquet files to. Files will be saved in a subdirectory.
+    <output-file>                      H5 file to write to. Will be created if it does not exist.
 
 Options:
     -h --help                           Show this screen.
@@ -26,7 +28,7 @@ def main():
             meta_ingest.meta_db_setup()
         
         # push a directory to db
-        meta_ingest.push_oracle_data(arguments["<oracle-dir>"])
+        meta_ingest.push_oracle_data(arguments["<input-dir>"])
     
     elif arguments["pull"]:
         from src.data import meta_ingest
@@ -41,6 +43,28 @@ def main():
 
         # pull down data and save in output-dir
         meta_ingest.pull_oracle_data(arguments["<output-dir>"], subset)
+
+    elif arguments["ntwk"]:
+        from src.data import meta_ingest
+        from src.features import *
+
+        # construct subset dict
+        subset = {}
+        subset["league"] = arguments["<league>"] if arguments["--league"] else None
+        subset["split"] = arguments["<split>"] if arguments["--split"] else None
+        subset["start_date"] = arguments["<start>"] if arguments["--start"] else "2000-01-01"
+        subset["end_date"] = arguments["<end>"] if arguments["--end"] else "2050-01-01"
+        subset["patchno"] = arguments["<patch>"] if arguments["--patch"] else None
+
+        i, n, e = meta_ingest.fetch_oracle_data(subset)
+
+        if arguments["<driver>"] == "g":
+            raise ValueError("TGraphFrames are not yet supported.")
+        elif arguments["<driver>"] == "t":
+            raise ValueError("TTeneto Networks are not yet supported.")
+        elif arguments["<driver>"] == "n":
+            pass
+            
 
 if __name__ == "__main__":
     main()
