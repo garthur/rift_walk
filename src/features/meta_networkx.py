@@ -1,6 +1,10 @@
-import itertools as itr
 import pandas as pd
+import numpy as np
 import networkx as nx
+import h5py
+import json
+import uuid
+import datetime
 
 # load environment variables
 import dotenv
@@ -83,6 +87,7 @@ class TNetworkX(object):
 
         self.index = 0
         self.link_type = link
+        self.graph_type = gtype
 
     def __iter__(self):
         return self
@@ -98,15 +103,61 @@ class TNetworkX(object):
         return self.network[index]
 
     @staticmethod
-    def load(f):
+    def load(f_):
         """
-        """
-        pass
+        Load a TNetworkX object from an HDF5 file.
 
-    def dump(self, f):
+        Arguments:
+
+        f_ -- an HDF5 file dumped by a TNetworkX object.
         """
+        with h5py.File(f_, "r") as f:
+            p = f["params"]
+            n = f["network"]
+
+            # create an empty network object
+            obj = TNetworkX.__new__(TNetworkX)
+
+            # read parameters
+            obj.index = 0
+            obj.periods = p.attrs["periods"]
+            obj.link_type = p.attrs["link_type"]
+            obj.graph_type = p.attrs["graph_type"]
+
+            # read network
+            obj.network = [nx.readwrite.json_graph.node_link_graph(json.loads(N.decode("ascii"))) 
+                                for N in f["network"]]
+
+            f.close()
+
+        return obj
+
+
+    def dump(self, f_):
         """
-        pass
+        Dump a TNetworkX object to an HDF5 file.
+
+        Arguments:
+
+        f_ -- An HDF5 file to be dumped to. Does not have to exist.
+        """
+        with h5py.File(f_, "w") as f:
+
+            network = f.create_dataset("network", (self.periods,), dtype=h5py.special_dtype(vlen=bytes))
+            x = [json.dumps(nx.readwrite.json_graph.node_link_data(N)).encode("ascii") 
+                    for N in self.network]
+            network[0:self.periods] = x
+
+            params = f.create_group("params")
+            params.attrs["periods"] = self.periods
+            params.attrs["link_type"] = self.link_type
+            params.attrs["graph_type"] = self.graph_type
+            
+            info = f.create_group("metadata")
+            info.attrs["uid"] = str(uuid.uuid4())
+            info.attrs["creation_date"] = str(datetime.datetime.now())
+
+            f.close()
     
     def gephi(self, d):
         """
