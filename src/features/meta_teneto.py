@@ -92,18 +92,6 @@ class TTeneto(teneto.classes.TemporalNetwork):
 
         f_ -- An HDF5 file to be dumped to. Does not have to exist.
         """
-        # TODO: finish this
-        with h5py.File(f_, "w") as f:
-            
-            network = f.create_dataset("network")
-
-            # graph parameters
-
-            # file metadata
-            info = f.create_group("metadata")
-            info.attrs["uid"] = str(uuid.uuid4())
-            info.attrs["creation_date"] = str(datetime.datetime.now())
-
-            f.close()
+        # TODO: file writing while managing network labels, may have to consider dropping teneto
 
     
