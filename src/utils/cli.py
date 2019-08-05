@@ -3,25 +3,27 @@
 Usage:
     rift-walk-cli ingest <input-dir> --overwrite-db
     rift-walk-cli pull <output-dir> [(--league <league>) (--split <split>) (--start <start>) (--end <end>) (--patch <patch>)]
-    rift-walk-cli ntwk <output-file> <driver> [(--league <league>) (--split <split>) (--start <start>) (--end <end>) (--patch <patch>)]
+    rift-walk-cli ntwk <output-file> <ntwk-driver> (--pkw|--pka|--ban) [(--league <league>) (--split <split>) (--start <start>) (--end <end>) (--patch <patch>)]
     rift-walk-cli -h
 
 Arguments:
     <input-dir>                        Directory with csv files from 'https://oracleselixir.com/match-data/'.
     <output-dir>                       Directory to write parquet files to. Files will be saved in a subdirectory.
     <output-file>                      H5 file to write to. Will be created if it does not exist.
+    <ntwk-driver>                      Network Driver to be used. One of g, t, n.
 
 Options:
     -h --help                           Show this screen.
 
 """
 from docopt import docopt
+from src.data import meta_ingest
+from src.features import TNetworkX
 
 def main():
     arguments = docopt(__doc__)
     
     if arguments["ingest"]:
-        from src.data import meta_ingest
         
         if(arguments["--overwrite-db"]):
             meta_ingest.meta_db_clean()
@@ -31,7 +33,6 @@ def main():
         meta_ingest.push_oracle_data(arguments["<input-dir>"])
     
     elif arguments["pull"]:
-        from src.data import meta_ingest
 
         # construct subset dict
         subset = {}
@@ -45,8 +46,6 @@ def main():
         meta_ingest.pull_oracle_data(arguments["<output-dir>"], subset)
 
     elif arguments["ntwk"]:
-        from src.data import meta_ingest
-        from src.features import *
 
         # construct subset dict
         subset = {}
@@ -56,6 +55,7 @@ def main():
         subset["end_date"] = arguments["<end>"] if arguments["--end"] else "2050-01-01"
         subset["patchno"] = arguments["<patch>"] if arguments["--patch"] else None
 
+        # fetch oracle data
         i, n, e = meta_ingest.fetch_oracle_data(subset)
 
         if arguments["<driver>"] == "g":
@@ -63,7 +63,10 @@ def main():
         elif arguments["<driver>"] == "t":
             raise ValueError("TTeneto Networks are not yet supported.")
         elif arguments["<driver>"] == "n":
-            pass
+            N = TNetworkX(i, n, e, gtype="simple")
+        else:
+            raise ValueError("An incorrect driver was specified.")
+
             
 
 if __name__ == "__main__":
